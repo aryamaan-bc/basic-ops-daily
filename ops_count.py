@@ -177,11 +177,30 @@ query($filter: IssueFilter!, $first: Int!, $after: String) {
       creator { name email }
       project { name }
       parent { id }
+      children(first: 30) {
+        nodes { identifier title updatedAt state { name type } assignee { displayName name } }
+      }
     }
     pageInfo { hasNextPage endCursor }
   }
 }
 """
+
+
+def next_step_hint(parent):
+    """For TOR drilldown: most recently updated open sub-issue, or None."""
+    kids = (parent.get("children") or {}).get("nodes") or []
+    open_kids = [
+        k for k in kids
+        if (k.get("state") or {}).get("type") not in ("completed", "canceled")
+    ]
+    if not open_kids:
+        return None
+    open_kids.sort(
+        key=lambda k: parse_iso(k.get("updatedAt") or "1970-01-01T00:00:00Z"),
+        reverse=True,
+    )
+    return open_kids[0]
 
 
 def fetch_issues(filt):
@@ -343,6 +362,19 @@ def render_project(name, issues, now, mode):
             lines.append(f"  *{state} ({len(in_state)}):*")
             for t in in_state:
                 lines.append(f"    • {link(t)} ({age_days(t, now)}d, {asg_cap(t)}): {t['title']}")
+                # Next-step hint only for Todo + In Progress — waiting states
+                # already convey the bottleneck via the parent's status.
+                if state in ("Todo", "In Progress"):
+                    n = next_step_hint(t)
+                    if n:
+                        st = (n.get("state") or {}).get("name") or "?"
+                        a = n.get("assignee") or {}
+                        nm = a.get("displayName") or a.get("name") or ""
+                        who = nm.split("@")[0].split()[0] if nm else "Unassigned"
+                        who_disp = (who[:1].upper() + who[1:]) if who else "Unassigned"
+                        lines.append(f"        → [{st}] {n['identifier']} ({who_disp}): {n['title']}")
+                    else:
+                        lines.append("        → (no open sub-issues yet)")
         return lines
     lines.extend(render_todos(issues, now))
     if mode == "list_ball":
