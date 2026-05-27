@@ -328,6 +328,22 @@ def render_project(name, issues, now, mode):
         if by_state.get(s):
             parts.append(f"{by_state[s]} {short[s] if mode == 'list_ball' else s}")
     lines = [RULE, f"*{name}* ({len(issues)} active): {', '.join(parts)}"]
+    # Transfer Out Requests gets per-ticket enumeration grouped by state,
+    # showing every ticket (incl. engineering) with age + assignee + title.
+    if name == "Transfer Out Requests":
+        state_order = ("Todo", "In Progress", "Waiting for customer",
+                       "Waiting for vendor", "Waiting for settlement", "Blocked")
+        for state in state_order:
+            in_state = sorted(
+                [i for i in issues if state_name(i) == state],
+                key=lambda x: -age_days(x, now),
+            )
+            if not in_state:
+                continue
+            lines.append(f"  *{state} ({len(in_state)}):*")
+            for t in in_state:
+                lines.append(f"    • {link(t)} ({age_days(t, now)}d, {asg_cap(t)}): {t['title']}")
+        return lines
     lines.extend(render_todos(issues, now))
     if mode == "list_ball":
         ip = [i for i in issues if state_name(i) == "In Progress"]
