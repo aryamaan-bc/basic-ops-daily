@@ -36,6 +36,9 @@ except ImportError:
 
 LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY")
 INTERCOM_API_KEY = os.environ.get("INTERCOM_API_KEY")
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
+SLACK_DM_USER = os.environ.get("SLACK_DM_USER")        # e.g. U0ASWEQBQHF
+SLACK_CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID")  # e.g. C0B1D4RN087
 
 OPS_TEAM = {"taylor", "will", "aryamaan", "daniel"}
 EP = {
@@ -90,6 +93,35 @@ def intercom(method, path, body=None):
     except Exception as e:
         print(f"  intercom {type(e).__name__}: {e}", file=sys.stderr)
         return None
+
+
+def slack_post(channel, text):
+    """Direct Slack chat.postMessage via bot token. Bypasses any MCP layer."""
+    if not SLACK_BOT_TOKEN:
+        print("  slack_post skipped: SLACK_BOT_TOKEN not set", file=sys.stderr)
+        return False
+    req = urllib.request.Request(
+        "https://slack.com/api/chat.postMessage",
+        data=json.dumps({
+            "channel": channel, "text": text,
+            "unfurl_links": False, "unfurl_media": False,
+        }).encode(),
+        method="POST",
+    )
+    req.add_header("Authorization", f"Bearer {SLACK_BOT_TOKEN}")
+    req.add_header("Content-Type", "application/json; charset=utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = json.loads(r.read())
+        if not resp.get("ok"):
+            print(f"  slack_post failed for {channel}: {resp}", file=sys.stderr)
+            return False
+        print(f"  slack_post ok: {channel} ts={resp.get('ts')}", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"  slack_post error for {channel}: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return False
 
 
 # ---------- Field accessors ----------
@@ -527,6 +559,12 @@ def main():
         json.dump(summary, f, indent=2)
     print(f"Wrote {len(text)} chars to /tmp/ops_message.txt; summary: {summary}",
           file=sys.stderr)
+
+    if SLACK_BOT_TOKEN:
+        if SLACK_DM_USER:
+            slack_post(SLACK_DM_USER, text)
+        if SLACK_CHANNEL_ID:
+            slack_post(SLACK_CHANNEL_ID, text)
 
 
 if __name__ == "__main__":
